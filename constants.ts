@@ -1,0 +1,824 @@
+import { Staff, AppState, GSIRow, Division, Outlet, OutletConfig, BankingPromoItem, StrategyMenuItem, CustomSupplier } from './types';
+
+export const DIVISIONS: Division[] = ['SERVICE', 'KITCHEN', 'BAR', 'STORE KEEPER'];
+export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export const MONTH_NAMES = MONTHS;
+
+export const DEFAULT_OUTLET_CONFIGS: OutletConfig[] = [
+  { id: 'SH CIPETE', name: 'SH CIPETE', area: 'JAKARTA', type: 'REGULAR OUTLET' },
+  { id: 'SH KEMANG', name: 'SH KEMANG', area: 'JAKARTA', type: 'REGULAR OUTLET' },
+  { id: 'SH LEBAK BULUS', name: 'SH LEBAK BULUS', area: 'JAKARTA', type: 'REGULAR OUTLET' },
+  { id: 'SH ALAM SUTERA', name: 'SH ALAM SUTERA', area: 'TANGGERANG', type: 'PRIME OUTLET' },
+  { id: 'SH BINTARO', name: 'SH BINTARO', area: 'TANGGERANG', type: 'REGULAR OUTLET' },
+  { id: 'SH THE BARN', name: 'SH THE BARN', area: 'TANGGERANG', type: 'PRIME OUTLET' },
+  { id: 'SH BEKASI', name: 'SH BEKASI', area: 'BEKASI', type: 'REGULAR OUTLET' },
+  { id: 'SH CIBUBUR', name: 'SH CIBUBUR', area: 'BEKASI', type: 'REGULAR OUTLET' }
+];
+
+export const OUTLET_AREAS: string[] = [
+  'BEKASI',
+  'JAKARTA',
+  'TANGGERANG',
+  'BANDUNG'
+];
+
+export const OUTLET_TYPES: string[] = [
+  'REGULAR OUTLET',
+  'PRIME OUTLET',
+  'FOOD COURT',
+  'INDONESIAN'
+];
+
+export const getDeletedOutletNames = (): string[] => {
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('APP_DELETED_OUTLETS');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    }
+  } catch (e) {}
+  return [];
+};
+
+export const markOutletDeleted = (name: string) => {
+  try {
+    if (typeof window !== 'undefined') {
+      const deleted = getDeletedOutletNames();
+      if (!deleted.includes(name)) {
+        deleted.push(name);
+        localStorage.setItem('APP_DELETED_OUTLETS', JSON.stringify(deleted));
+      }
+    }
+  } catch (e) {}
+};
+
+export const getActiveOutletConfigs = (customOutlets?: OutletConfig[]): OutletConfig[] => {
+  const deletedSet = new Set(getDeletedOutletNames());
+  const defaultNames = new Set(DEFAULT_OUTLET_CONFIGS.map(d => d.name));
+
+  if (customOutlets && Array.isArray(customOutlets) && customOutlets.length > 0) {
+    return customOutlets.filter(o => !o.isDeleted && (!deletedSet.has(o.name) || defaultNames.has(o.name)));
+  }
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('APP_OUTLET_CONFIGS') : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const merged = [...parsed];
+        // Ensure all core 8 outlets exist
+        DEFAULT_OUTLET_CONFIGS.forEach(def => {
+          if (!merged.some((m: any) => m.name === def.name)) {
+            merged.push(def);
+          }
+        });
+        return merged.filter((o: any) => !o.isDeleted && (!deletedSet.has(o.name) || defaultNames.has(o.name)));
+      }
+    }
+  } catch (e) {
+    // fallback
+  }
+  return DEFAULT_OUTLET_CONFIGS;
+};
+
+export const getActiveOutletNames = (customOutlets?: OutletConfig[]): string[] => {
+  const configs = getActiveOutletConfigs(customOutlets);
+  return configs.map(c => c.name);
+};
+
+export const isOutletActive = (name: string): boolean => {
+  const activeNames = getActiveOutletNames();
+  return activeNames.includes(name);
+};
+
+export const getActiveRegionalAreas = (activeNames?: string[]): Record<string, Outlet[]> => {
+  const activeList = activeNames || getActiveOutletNames();
+  const activeSet = new Set(activeList);
+  const areas: Record<string, Outlet[]> = {
+    'JAKARTA': [],
+    'TANGGERANG': [],
+    'BEKASI & CIBUBUR': []
+  };
+
+  // Populate from active configs first
+  const configs = getActiveOutletConfigs();
+  configs.forEach(cfg => {
+    if (cfg.isDeleted || !activeSet.has(cfg.name)) return;
+    const area = cfg.area || 'JAKARTA';
+    const normalizedArea = area.toUpperCase().includes('BEKASI') || area.toUpperCase().includes('CIBUBUR')
+      ? 'BEKASI & CIBUBUR'
+      : area.toUpperCase().includes('TANGGERANG') || area.toUpperCase().includes('TANGERANG')
+      ? 'TANGGERANG'
+      : area;
+    if (!areas[normalizedArea]) areas[normalizedArea] = [];
+    if (!areas[normalizedArea].includes(cfg.name as Outlet)) {
+      areas[normalizedArea].push(cfg.name as Outlet);
+    }
+  });
+
+  // Ensure default area outlets that are active are included
+  Object.entries(REGIONAL_AREAS).forEach(([a, list]) => {
+    if (!areas[a]) areas[a] = [];
+    list.forEach(o => {
+      if (activeSet.has(o) && !areas[a].includes(o)) {
+        areas[a].push(o);
+      }
+    });
+  });
+
+  return areas;
+};
+
+export const saveActiveOutletConfigs = (configs: OutletConfig[]) => {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('APP_OUTLET_CONFIGS', JSON.stringify(configs));
+      window.dispatchEvent(new CustomEvent('appOutletConfigsChanged', { detail: configs }));
+    }
+  } catch (e) {
+    console.error('Failed to save outlet configs to localStorage', e);
+  }
+};
+
+export const OUTLETS: Outlet[] = [
+  'SH CIPETE',
+  'SH KEMANG',
+  'SH LEBAK BULUS',
+  'SH ALAM SUTERA',
+  'SH BINTARO',
+  'SH THE BARN',
+  'SH BEKASI',
+  'SH CIBUBUR'
+];
+
+export const REGIONAL_AREAS: Record<string, Outlet[]> = {
+  'JAKARTA': [
+    'SH CIPETE',
+    'SH KEMANG',
+    'SH LEBAK BULUS'
+  ],
+  'TANGGERANG': [
+    'SH ALAM SUTERA',
+    'SH BINTARO',
+    'SH THE BARN'
+  ],
+  'BEKASI & CIBUBUR': [
+    'SH BEKASI',
+    'SH CIBUBUR'
+  ]
+};
+
+export interface OrderScheduleInfo {
+  area: string;
+  areaName: string;
+  days: string[];
+  dayIndices: number[]; // 0: Sunday, 1: Monday, 2: Tuesday, 3: Wednesday, 4: Thursday, 5: Friday, 6: Saturday
+  label: string;
+  outlets: Outlet[];
+  notes?: string;
+}
+
+export const ORDER_SCHEDULES_BY_AREA: Record<string, OrderScheduleInfo> = {
+  'JAKARTA': {
+    area: 'JAKARTA',
+    areaName: 'AREA JAKARTA (CIPETE, KEMANG, LEBAK BULUS)',
+    days: ['SELASA', 'KAMIS', 'SABTU'],
+    dayIndices: [2, 4, 6],
+    label: 'SELASA, KAMIS & SABTU',
+    outlets: ['SH CIPETE', 'SH KEMANG', 'SH LEBAK BULUS'],
+    notes: 'Jadwal order resmi Area Jakarta'
+  },
+  'BEKASI & CIBUBUR': {
+    area: 'BEKASI & CIBUBUR',
+    areaName: 'SMB BEKASI + CIBUBUR',
+    days: ['SELASA', 'KAMIS', 'SABTU'],
+    dayIndices: [2, 4, 6],
+    label: 'SELASA, KAMIS & SABTU',
+    outlets: ['SH BEKASI', 'SH CIBUBUR'],
+    notes: 'Jadwal order resmi SMB Bekasi & Cibubur'
+  },
+  'TANGGERANG': {
+    area: 'TANGGERANG',
+    areaName: 'AREA TANGGERANG (ALAM SUTERA, BINTARO, THE BARN)',
+    days: ['SENIN', 'RABU', 'JUMAT'],
+    dayIndices: [1, 3, 5],
+    label: 'SENIN, RABU & JUMAT',
+    outlets: ['SH ALAM SUTERA', 'SH BINTARO', 'SH THE BARN'],
+    notes: 'Jadwal order resmi Area Tanggerang'
+  }
+};
+
+export const getAreaForOutlet = (outlet: string): string => {
+  const normalized = (outlet || '').toUpperCase().trim();
+  if (normalized === 'SH ALSUT' || normalized === 'ALSUT') return 'TANGGERANG';
+  if (
+    normalized.includes('CIPETE') ||
+    normalized.includes('KEMANG') ||
+    normalized.includes('LEBAK') ||
+    normalized.includes('JAKARTA')
+  ) {
+    return 'JAKARTA';
+  }
+  if (
+    normalized.includes('BEKASI') ||
+    normalized.includes('CIBUBUR') ||
+    normalized.includes('SMB')
+  ) {
+    return 'BEKASI & CIBUBUR';
+  }
+  if (
+    normalized.includes('ALAM SUTERA') ||
+    normalized.includes('BINTARO') ||
+    normalized.includes('BARN') ||
+    normalized.includes('TANGGERANG') ||
+    normalized.includes('TANGERANG')
+  ) {
+    return 'TANGGERANG';
+  }
+  for (const [area, list] of Object.entries(REGIONAL_AREAS)) {
+    if (list.includes(outlet as Outlet)) return area;
+  }
+  return 'JAKARTA';
+};
+
+/**
+ * Robust outlet lookup helper that resolves outlet data by name,
+ * supporting exact, trimmed, case-insensitive, with/without "SH " prefix,
+ * and abbreviation aliases (e.g. ALSUT <-> ALAM SUTERA).
+ */
+export const findOutletData = (allOutletsData: Record<string, any> | undefined | null, outletName: string): any => {
+  if (!allOutletsData || !outletName || typeof allOutletsData !== 'object') return {};
+  if (allOutletsData[outletName]) return allOutletsData[outletName];
+
+  const cleanTarget = outletName.trim().toUpperCase();
+  const keys = Object.keys(allOutletsData);
+
+  // 1. Direct case-insensitive match
+  const directMatch = keys.find(k => k.trim().toUpperCase() === cleanTarget);
+  if (directMatch) return allOutletsData[directMatch];
+
+  // 2. Match with / without "SH " prefix
+  const targetWithoutSH = cleanTarget.replace(/^SH\s+/, '').trim();
+  const targetWithSH = `SH ${targetWithoutSH}`;
+
+  const prefixMatch = keys.find(k => {
+    const cleanK = k.trim().toUpperCase();
+    const kWithoutSH = cleanK.replace(/^SH\s+/, '').trim();
+    return cleanK === targetWithSH || kWithoutSH === targetWithoutSH;
+  });
+  if (prefixMatch) return allOutletsData[prefixMatch];
+
+  // 3. Known aliases
+  if (cleanTarget.includes('LEBAK') || cleanTarget.includes('BULUS')) {
+    const lbKey = keys.find(k => {
+      const c = k.toUpperCase();
+      return c.includes('LEBAK') || c.includes('BULUS');
+    });
+    if (lbKey) return allOutletsData[lbKey];
+  }
+
+  if (cleanTarget.includes('ALSUT') || cleanTarget.includes('ALAM SUTERA')) {
+    const alsutKey = keys.find(k => {
+      const c = k.toUpperCase();
+      return c.includes('ALSUT') || c.includes('ALAM SUTERA');
+    });
+    if (alsutKey) return allOutletsData[alsutKey];
+  }
+
+  if (cleanTarget.includes('BARN')) {
+    const barnKey = keys.find(k => k.toUpperCase().includes('BARN'));
+    if (barnKey) return allOutletsData[barnKey];
+  }
+
+  // 4. Fallback: contains key
+  const containsMatch = keys.find(k => {
+    const c = k.trim().toUpperCase();
+    return c.includes(targetWithoutSH) || targetWithoutSH.includes(c.replace(/^SH\s+/, '').trim());
+  });
+  if (containsMatch) return allOutletsData[containsMatch];
+
+  return {};
+};
+
+/**
+ * Extracts month data from an outlet object across possible structures
+ * (numeric string key, number key, monthlyData property, or root).
+ */
+export const getOutletMonthData = (outletData: any, monthIdx: number | string, year?: number | string): any => {
+  if (!outletData || typeof outletData !== 'object') return {};
+  const mStr = String(monthIdx);
+  const mNum = Number(monthIdx);
+  const yStr = year ? String(year) : '';
+  const yMonthKey = (yStr && !isNaN(mNum)) ? `${yStr}-${String(mNum + 1).padStart(2, '0')}` : '';
+
+  // Direct month key
+  if (outletData[mStr] && typeof outletData[mStr] === 'object') return outletData[mStr];
+  if (!isNaN(mNum) && outletData[mNum] && typeof outletData[mNum] === 'object') return outletData[mNum];
+
+  // monthlyData map
+  if (outletData.monthlyData && typeof outletData.monthlyData === 'object') {
+    if (outletData.monthlyData[mStr] && typeof outletData.monthlyData[mStr] === 'object') return outletData.monthlyData[mStr];
+    if (!isNaN(mNum) && outletData.monthlyData[mNum] && typeof outletData.monthlyData[mNum] === 'object') return outletData.monthlyData[mNum];
+  }
+
+  // YYYY-MM key
+  if (yMonthKey && outletData[yMonthKey] && typeof outletData[yMonthKey] === 'object') return outletData[yMonthKey];
+
+  return outletData;
+};
+
+/**
+ * Extracts and consolidates all GSI entries for an outlet across root,
+ * monthlyData, and all 12 month sub-objects, ensuring array format.
+ */
+export const extractAllGSIEntries = (outletData: any): Record<string, GSIRow[]> => {
+  const result: Record<string, GSIRow[]> = {};
+  if (!outletData || typeof outletData !== 'object') return result;
+
+  const ingestGsiMap = (map: any) => {
+    if (!map || typeof map !== 'object') return;
+    Object.entries(map).forEach(([dateStr, rows]) => {
+      if (!rows) return;
+      const rowList: GSIRow[] = Array.isArray(rows)
+        ? rows
+        : (typeof rows === 'object' ? Object.values(rows) : []);
+      if (rowList.length > 0) {
+        result[dateStr] = rowList;
+      }
+    });
+  };
+
+  // Root dailyGSI
+  ingestGsiMap(outletData.dailyGSI);
+
+  // Scan all months directly on outletData and within monthlyData
+  const sources = [outletData, outletData.monthlyData];
+  sources.forEach(src => {
+    if (src && typeof src === 'object') {
+      for (let m = 0; m < 12; m++) {
+        const mObj = src[String(m)];
+        if (mObj?.dailyGSI) {
+          ingestGsiMap(mObj.dailyGSI);
+        }
+      }
+    }
+  });
+
+  return result;
+};
+
+export const getOrderScheduleForOutlet = (outlet: string): OrderScheduleInfo => {
+  const normalized = (outlet || '').toUpperCase().trim();
+  if (
+    normalized.includes('CIPETE') ||
+    normalized.includes('KEMANG') ||
+    normalized.includes('LEBAK') ||
+    normalized.includes('JAKARTA') ||
+    normalized === 'AREA JAKARTA'
+  ) {
+    return ORDER_SCHEDULES_BY_AREA['JAKARTA'];
+  }
+  if (
+    normalized.includes('BEKASI') ||
+    normalized.includes('SMB') ||
+    normalized.includes('CIBUBUR') ||
+    normalized.includes('BEKASI & CIBUBUR') ||
+    normalized.includes('BEKASI DAN CIBUBUR')
+  ) {
+    return ORDER_SCHEDULES_BY_AREA['BEKASI & CIBUBUR'];
+  }
+  if (
+    normalized.includes('ALAM SUTERA') ||
+    normalized.includes('ALSUT') ||
+    normalized.includes('BINTARO') ||
+    normalized.includes('BARN') ||
+    normalized.includes('TANGGERANG') ||
+    normalized.includes('TANGERANG') ||
+    normalized === 'AREA TANGGERANG'
+  ) {
+    return ORDER_SCHEDULES_BY_AREA['TANGGERANG'];
+  }
+  // Default check via getAreaForOutlet
+  const area = getAreaForOutlet(outlet);
+  if (ORDER_SCHEDULES_BY_AREA[area]) {
+    return ORDER_SCHEDULES_BY_AREA[area];
+  }
+  return ORDER_SCHEDULES_BY_AREA['JAKARTA'];
+};
+
+export const isOrderDayForOutlet = (outlet: string, date: Date | string = new Date()): boolean => {
+  const sched = getOrderScheduleForOutlet(outlet);
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return false;
+  const dayIndex = d.getDay();
+  return sched.dayIndices.includes(dayIndex);
+};
+
+export const STAFF_LIST: Staff[] = [];
+
+
+export const ROLES_BY_DIVISION: Record<string, string[]> = {
+  'SERVICE': [
+    'RESTAURANT MANAGER',
+    'ASST RESTAURANT MANAGER',
+    'ASST MANAGER',
+    'RESTAURANT SUPERVISOR',
+    'RESTAURANT CAPTAIN',
+    'CASHIER',
+    'GREETER',
+    'CHECKER',
+    'SERVICE',
+    'SERVER',
+    'PUBLIK ATTENDANCE',
+    'PUBLIC ATTENDANCE'
+  ],
+  'KITCHEN': [
+    'SOUS CHEF',
+    'CHEF DE PARTIE',
+    'DEMI CHEF',
+    'COMMIS',
+    'STEWARD'
+  ],
+  'BAR': [
+    'BAR CAPTAIN',
+    'BARISTA',
+    'TRAINEE'
+  ],
+  'STORE KEEPER': ['STORE KEEPER']
+};
+
+export const INITIAL_GSI_STRUCTURE: GSIRow[] = [
+  { id: '1', subject: 'Quality of Service', excellent: 0, good: 0, average: 0, poor: 0, abstain: 0 },
+  { id: '2', subject: 'Quality of Food', excellent: 0, good: 0, average: 0, poor: 0, abstain: 0 },
+  { id: '3', subject: 'Quality of Beverage', excellent: 0, good: 0, average: 0, poor: 0, abstain: 0 },
+  { id: '4', subject: 'Quality of Cleanliness', excellent: 0, good: 0, average: 0, poor: 0, abstain: 0 },
+  { id: '5', subject: 'Attentiveness of Staff', excellent: 0, good: 0, average: 0, poor: 0, abstain: 0 },
+  { id: '6', subject: 'Value for Money', excellent: 0, good: 0, average: 0, poor: 0, abstain: 0 },
+];
+
+export const INITIAL_STATE: AppState = {
+  staffList: STAFF_LIST,
+  googleReview: {
+    targetRating: 5,
+    currentRating: 0,
+    totalReview: 0,
+    targetReviewCount: 100,
+    stars1: 0,
+    stars2: 0,
+    stars3: 0,
+    stars4: 0,
+    stars5: 0,
+  },
+  dailyGoogleReview: {},
+  dailyGSI: {},
+  guestComplaints: [],
+  qa: {
+    kitchen: { product: 0, cleanliness: 0, grooming: 0 },
+    bar: { product: 0, cleanliness: 0, grooming: 0 },
+    service: { product: 0, grooming: 0, cleanliness: 0 },
+  },
+  dailyQA: {},
+  dailyBreakTime: {},
+  monthlyCogsData: {},
+  expenses: {},
+  dailyMainKitchenLedger: {},
+  dailyMainStoreLedger: {},
+  dailyChemicalLedger: {},
+  dailyGuestSuppliesLedger: {},
+  dailyCashLedger: {},
+  cityLedger: [],
+  dailyCityLedger: {},
+  customerSat: [],
+  dailyCustomerSat: {},
+  complimentary: [],
+  dailyComplimentary: {},
+  sales: {
+    revenue: 0,
+    covers: 0,
+    budgetRevenue: 0,
+    dailyTarget: 0,
+    todayRevenue: 0,
+    todayCovers: 0,
+    dailyRecording: {}
+  },
+  dailyTargets: {},
+  holidays: [],
+  leaveRecords: [],
+  dailyOvertime: {},
+  weeklyOvertime: {},
+  dailyAttendance: {},
+  dailyReports: {},
+  dailyReportSummaries: {},
+  overtimeBudgets: {
+    SERVICE: 0,
+    BAR: 0,
+    KITCHEN: 0,
+    'STORE KEEPER': 0,
+    'PUBLIC ATTENDANCE': 0,
+    STEWARD: 0
+  },
+  dailyNonCommodityLedger: {},
+  dailyCommodityLedger: {},
+  dailyMaintenanceLedger: {},
+  dailyAssetLedger: {},
+  dailyCasualLedger: {},
+  dailyAtkLedger: {},
+  dailyThirdPartyLedger: {},
+  dailyIkigaiLedger: {},
+  dailyPanfilaLedger: {},
+  dailyEverestLedger: {},
+  dailySaungKubilLedger: {},
+  dailyTgifLedger: {},
+  dailySukandaLedger: {},
+  dailyKebunkuLedger: {},
+  dailyGasLedger: {},
+  dailyTips: {},
+  dailyCPA: {},
+  dailyExternalAudit: {},
+  opexBudgetPercentage: 0,
+  affiliateHistory: [],
+  monthlyDiscountNames: {},
+  logisticItems: [],
+  dailyLogisticRecords: {},
+  peminjamanRecords: [],
+  logisticBeginningStocks: {},
+  logisticPeriodPrices: {},
+  dailyVoidBills: {},
+  voidBills: [],
+  customSuppliers: [],
+  dailyCustomSupplierLedgers: {},
+};
+
+export const QA_PASSING_SCORES = {
+  kitchen: 85,
+  bar: 90,
+  service: 95
+};
+
+export const QA_PASSING_TIERS = {
+  EXCELLENT: { label: 'EXCELLENT', min: 91.00, max: 100.00, range: '91.00% - 100%', description: 'Sangat Baik / Unggul' },
+  SATISFACTORY: { label: 'SATISFACTORY', min: 85.00, max: 90.99, range: '85.00% - 90.00%', description: 'Standar Memuaskan' },
+  TO_IMPROVE: { label: 'TO IMPROVE', min: 45.00, max: 84.99, range: '45.00% - 84.00%', description: 'Perlu Peningkatan' },
+};
+
+export const getQaScoreTier = (score: number) => {
+  const num = Number(score) || 0;
+  if (num >= 91.0) {
+    return {
+      tier: 'EXCELLENT' as const,
+      label: 'EXCELLENT',
+      range: '91.00% - 100%',
+      textColor: 'text-emerald-400',
+      bgColor: 'bg-emerald-500/10',
+      borderColor: 'border-emerald-500/30',
+      badgeClass: 'bg-emerald-500 text-white font-black shadow-lg shadow-emerald-900/40',
+      icon: 'fa-award',
+      barColor: 'bg-emerald-500'
+    };
+  }
+  if (num >= 85.0) {
+    return {
+      tier: 'SATISFACTORY' as const,
+      label: 'SATISFACTORY',
+      range: '85.00% - 90.00%',
+      textColor: 'text-blue-400',
+      bgColor: 'bg-blue-500/10',
+      borderColor: 'border-blue-500/30',
+      badgeClass: 'bg-blue-600 text-white font-black shadow-lg shadow-blue-900/40',
+      icon: 'fa-check-circle',
+      barColor: 'bg-blue-500'
+    };
+  }
+  return {
+    tier: 'TO IMPROVE' as const,
+    label: 'TO IMPROVE',
+    range: '45.00% - 84.00%',
+    textColor: 'text-amber-400',
+    bgColor: 'bg-amber-500/10',
+    borderColor: 'border-amber-500/30',
+    badgeClass: 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-900/40',
+    icon: 'fa-exclamation-triangle',
+    barColor: 'bg-amber-500'
+  };
+};
+
+export const QA_SERVICE_SUBJECTS = [
+  { id: 'chemicalControl', label: 'CHEMICAL CONTROL', shortLabel: 'Chemical Control' },
+  { id: 'emergencySafety', label: 'EMERGENCY & SAFETY FACILITIES', shortLabel: 'Emergency & Safety' },
+  { id: 'personalHygiene', label: 'PERSONAL HYGIENE', shortLabel: 'Personal Hygiene' },
+  { id: 'restaurantCleanliness', label: 'RESTAURANT CLEANLINESS', shortLabel: 'Restaurant Cleanliness' },
+  { id: 'sequenceOfService', label: 'SEQUENCE OF SERVICE', shortLabel: 'Sequence of Service' },
+  { id: 'serviceHospitality', label: 'SERVICE & HOSPITALITY', shortLabel: 'Service & Hospitality' },
+  { id: 'servingEquipment', label: 'SERVING EQUIPMENT PROPERNESS', shortLabel: 'Serving Equipment' },
+] as const;
+
+export const QA_KITCHEN_SUBJECTS = [
+  { id: 'chemicalControl', label: 'CHEMICAL CONTROL', shortLabel: 'Chemical Control' },
+  { id: 'cleaningSanitation', label: 'CLEANING AND SANITATION', shortLabel: 'Cleaning & Sanitation' },
+  { id: 'emergencySafety', label: 'EMERGENCY & SAFETY FACILITIES', shortLabel: 'Emergency & Safety' },
+  { id: 'foodBeverageQuality', label: 'FOOD AND BEVERAGE QUALITY CHECK UNTUK INTERNAL QA', shortLabel: 'F&B Quality Check' },
+  { id: 'personalHygiene', label: 'PERSONAL HYGIENE', shortLabel: 'Personal Hygiene' },
+  { id: 'pestControl', label: 'PEST CONTROL', shortLabel: 'Pest Control' },
+  { id: 'receivingStoragePrep', label: 'RECEIVING, STORAGE, PREPARATION, PROCESSING, SERVING', shortLabel: 'Receiving, Storage & Prep' },
+] as const;
+
+export const QA_BAR_SUBJECTS = [
+  { id: 'chemicalControl', label: 'CHEMICAL CONTROL', shortLabel: 'Chemical Control' },
+  { id: 'cleaningSanitation', label: 'CLEANING AND SANITATION', shortLabel: 'Cleaning & Sanitation' },
+  { id: 'emergencySafety', label: 'EMERGENCY & SAFETY FACILITIES', shortLabel: 'Emergency & Safety' },
+  { id: 'foodBeverageQuality', label: 'FOOD AND BEVERAGE QUALITY CHECK UNTUK INTERNAL QA', shortLabel: 'F&B Quality Check' },
+  { id: 'personalHygiene', label: 'PERSONAL HYGIENE', shortLabel: 'Personal Hygiene' },
+  { id: 'pestControl', label: 'PEST CONTROL', shortLabel: 'Pest Control' },
+  { id: 'receivingStoragePrep', label: 'RECEIVING, STORAGE, PREPARATION, PROCESSING, SERVING', shortLabel: 'Receiving, Storage & Prep' },
+] as const;
+
+export const calcQAScore = (sec: any, subjects?: readonly { id: string }[]): number => {
+  if (!sec || typeof sec !== 'object') return 0;
+  if (subjects && subjects.length > 0) {
+    const vals = subjects.map(s => Number(sec[s.id])).filter(v => !isNaN(v) && v > 0);
+    if (vals.length > 0) {
+      return Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
+    }
+  }
+  const candidateKeys = [
+    'chemicalControl', 'cleaningSanitation', 'emergencySafety', 'foodBeverageQuality',
+    'personalHygiene', 'pestControl', 'receivingStoragePrep', 'restaurantCleanliness',
+    'sequenceOfService', 'serviceHospitality', 'servingEquipment'
+  ];
+  const newVals = candidateKeys.map(k => Number(sec[k])).filter(v => !isNaN(v) && v > 0);
+  if (newVals.length > 0) {
+    return Number((newVals.reduce((a, b) => a + b, 0) / newVals.length).toFixed(2));
+  }
+  const legacyVals = [Number(sec.product) || 0, Number(sec.cleanliness) || 0, Number(sec.grooming) || 0].filter(v => v > 0);
+  return legacyVals.length > 0 ? Number((legacyVals.reduce((a, b) => a + b, 0) / legacyVals.length).toFixed(2)) : 0;
+};
+
+export const OT_RATE = 15000;
+export const DEFAULT_OT_BUDGET_HOURS = 35;
+export const DEFAULT_OT_RATE = 15000;
+
+export interface DivisionNotes {
+  SERVICE?: string;
+  KITCHEN?: string;
+  BAR?: string;
+  'STORE KEEPER'?: string;
+  [key: string]: string | undefined;
+}
+
+export const getStoredOtBudgetSettings = (): { budgetHours: number; ratePerHour: number } => {
+  try {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('APP_OT_BUDGET_SETTINGS');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          budgetHours: Number(parsed.budgetHours) || DEFAULT_OT_BUDGET_HOURS,
+          ratePerHour: Number(parsed.ratePerHour) || DEFAULT_OT_RATE
+        };
+      }
+    }
+  } catch (e) {
+    // fallback
+  }
+  return { budgetHours: DEFAULT_OT_BUDGET_HOURS, ratePerHour: DEFAULT_OT_RATE };
+};
+
+export const saveStoredOtBudgetSettings = (settings: { budgetHours: number; ratePerHour: number }) => {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('APP_OT_BUDGET_SETTINGS', JSON.stringify(settings));
+    }
+  } catch (e) {
+    // fallback
+  }
+};
+
+export const getStoredDivisionNotes = (periodKey: string): Record<string, DivisionNotes> => {
+  try {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`APP_DIVISION_NOTES_${periodKey}`);
+      if (saved) return JSON.parse(saved);
+    }
+  } catch (e) {}
+  return {};
+};
+
+export const saveStoredDivisionNotes = (periodKey: string, notes: Record<string, DivisionNotes>) => {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`APP_DIVISION_NOTES_${periodKey}`, JSON.stringify(notes));
+    }
+  } catch (e) {}
+};
+
+export const DEFAULT_BANKING_PROMOS: BankingPromoItem[] = [
+  {
+    id: 'digibank',
+    name: 'Digibank by DBS',
+    terms: 'All F&B - JKT/TGR/BKS Disc Rp 150.000 min purchase Rp 1.250.000',
+    isActive: true,
+    targetOutlets: ['ALL']
+  },
+  {
+    id: 'bank_mega',
+    name: 'Bank MEGA',
+    terms: 'All F&B Disc 15% min purchase Rp 650.000 max disc Rp 150.000',
+    isActive: true,
+    targetOutlets: ['ALL']
+  }
+];
+
+export const getStoredBankPromos = (): BankingPromoItem[] => {
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('APP_PROMO_SETTINGS');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed?.customBankPromos) && parsed.customBankPromos.length > 0) {
+          return parsed.customBankPromos;
+        }
+      }
+    }
+  } catch (e) {}
+  return DEFAULT_BANKING_PROMOS;
+};
+
+export const DEFAULT_STRATEGY_MENU_CATALOG: StrategyMenuItem[] = [
+  // Penyeimbang (Balance items)
+  { id: 'strat_1', name: 'Ribeye Prime 200gr', category: 'PENYEIMBANG', price: 185000, session: 'BOTH', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_2', name: 'Sirloin US Beef 200gr', category: 'PENYEIMBANG', price: 165000, session: 'BOTH', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_3', name: 'Cream of Mushroom Soup', category: 'PENYEIMBANG', price: 38000, session: 'BOTH', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_4', name: 'Chicken Cordon Bleu', category: 'PENYEIMBANG', price: 85000, session: 'LUNCH', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_5', name: 'Justus Ice Lemon Tea Pitcher', category: 'PENYEIMBANG', price: 45000, session: 'BOTH', isActive: true, createdAt: '2026-01-01' },
+  // Percepatan (Accelerator items)
+  { id: 'strat_6', name: 'Australian Wagyu MB5 Tenderloin', category: 'PERCEPATAN', price: 295000, session: 'DINNER', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_7', name: 'Tomahawk Meltique 500gr', category: 'PERCEPATAN', price: 385000, session: 'DINNER', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_8', name: 'Family Sharing Platter 4 Pax', category: 'PERCEPATAN', price: 450000, session: 'BOTH', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_9', name: 'Combo Steak & Pasta Special', category: 'PERCEPATAN', price: 135000, session: 'LUNCH', isActive: true, createdAt: '2026-01-01' },
+  { id: 'strat_10', name: 'Surf & Turf Prime Feast', category: 'PERCEPATAN', price: 265000, session: 'BOTH', isActive: true, createdAt: '2026-01-01' }
+];
+
+export const getStoredStrategyCatalog = (): StrategyMenuItem[] => {
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('APP_STRATEGY_CATALOG');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    }
+  } catch (e) {}
+  return DEFAULT_STRATEGY_MENU_CATALOG;
+};
+
+export const saveStoredStrategyCatalog = (items: StrategyMenuItem[]) => {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('APP_STRATEGY_CATALOG', JSON.stringify(items));
+      window.dispatchEvent(new CustomEvent('appStrategyCatalogChanged', { detail: items }));
+    }
+  } catch (e) {}
+};
+
+export const DEFAULT_CORE_SUPPLIERS = [
+  { id: 'sup_tgif', name: 'TGIF', category: 'Daging & Olahan Protein', icon: 'fa-truck-loading', color: 'border-red-500/30 bg-red-500/10 text-red-400' },
+  { id: 'sup_sukanda', name: 'Sukanda Djaya', category: 'Dairy, Bakery & Frozen Food', icon: 'fa-box', color: 'border-blue-500/30 bg-blue-500/10 text-blue-400' },
+  { id: 'sup_everest', name: 'Everest', category: 'Seafood & Daging Beku', icon: 'fa-mountain', color: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-400' },
+  { id: 'sup_ikigai', name: 'Ikigai', category: 'Ikan & Hasil Laut Segar', icon: 'fa-fish', color: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' },
+  { id: 'sup_panfila', name: 'Panfila', category: 'Bakery, Pastry & Bahan Baku', icon: 'fa-leaf', color: 'border-purple-500/30 bg-purple-500/10 text-purple-400' },
+  { id: 'sup_saung_kubil', name: 'Saung Kubil', category: 'Sayuran & Hasil Tani', icon: 'fa-seedling', color: 'border-amber-500/30 bg-amber-500/10 text-amber-400' },
+  { id: 'sup_kebunku', name: 'Kebunku', category: 'Sayuran Organik & Buah Segar', icon: 'fa-carrot', color: 'border-lime-500/30 bg-lime-500/10 text-lime-400' },
+  { id: 'sup_main_store', name: 'Main Store', category: 'Gudang Pusat / Dry Goods', icon: 'fa-warehouse', color: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-400' },
+  { id: 'sup_main_kitchen', name: 'Main Kitchen', category: 'Sentral Dapur / Semi-Finished', icon: 'fa-utensils', color: 'border-orange-500/30 bg-orange-500/10 text-orange-400' },
+  { id: 'sup_chemical', name: 'Chemical & Hygiene', category: 'Chemical & Cleaning Supplies', icon: 'fa-pump-soap', color: 'border-teal-500/30 bg-teal-500/10 text-teal-400' },
+  { id: 'sup_cash', name: 'Cash / Pasar Harian', category: 'Belanja Tunai & Pasar Tradisional', icon: 'fa-money-bill-wave', color: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400' },
+];
+
+export const getStoredCustomSuppliers = (): CustomSupplier[] => {
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('APP_CUSTOM_SUPPLIERS');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    }
+  } catch (e) {}
+  return [];
+};
+
+export const saveStoredCustomSuppliers = (suppliers: CustomSupplier[]) => {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('APP_CUSTOM_SUPPLIERS', JSON.stringify(suppliers));
+      window.dispatchEvent(new CustomEvent('appCustomSuppliersChanged', { detail: suppliers }));
+    }
+  } catch (e) {}
+};
+
+
